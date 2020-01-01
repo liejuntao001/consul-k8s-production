@@ -1,0 +1,160 @@
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: traefik-ingress-controller
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: traefik-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-ingress-controller
+subjects:
+- kind: ServiceAccount
+  name: traefik-ingress-controller
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-ingress-controller
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    k8s-app: traefik-ingress-lb
+spec:
+  selector:
+    k8s-app: traefik-ingress-lb
+  ports:
+    - port: 80
+      name: http
+    - port: 443
+      name: https
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-console
+  namespace: kube-system
+  labels:
+    k8s-app: traefik-ingress-lb
+spec:
+  selector:
+    k8s-app: traefik-ingress-lb
+  ports:
+    - port: 8080
+      name: web
+
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: traefik-ingress-controller
+  namespace: kube-system
+  labels:
+    k8s-app: traefik-ingress-lb
+spec:
+  revisionHistoryLimit: 0
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        k8s-app: traefik-ingress-lb
+        name: traefik-ingress-lb
+    spec:
+      serviceAccountName: traefik-ingress-controller
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: tls
+          secret:
+            secretName: traefik-consul
+      containers:
+        - image: traefik:v1.7.20-alpine
+          name: traefik-ingress-lb
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /etc/tls
+              name: tls
+          ports:
+            - containerPort: 80
+              hostPort: 80
+            - containerPort: 443
+              hostPort: 443
+            - containerPort: 8080
+          args:
+            - --consul
+            - --consul.endpoint=https://consul.consul.svc.cluster.local:8443
+            - --consul.tls.ca=/etc/tls/ca.pem
+            - --consul.tls.cert=/etc/tls/traefik.pem
+            - --consul.tls.key=/etc/tls/traefik-key.pem
+            - --web
+            - --web.metrics.prometheus
+            - --web.metrics.prometheus.buckets=0.1,0.3,1.2,5.0
+            - --kubernetes
+          # uncomment below if Consul uses ACL
+          env:
+            - name: "CONSUL_HTTP_TOKEN"
+              value: "<use your token for traefik>"
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: In
+                values:
+                - ""
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: traefik-ingress
+  namespace: kube-system
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    ingress.kubernetes.io/auth-type: "basic"
+    ingress.kubernetes.io/auth-secret: "kubesecret"
+spec:
+  rules:
+    - host: traefik.${DOMAIN}
+      http:
+        paths:
+          - backend:
+              serviceName: traefik-console
+              servicePort: web
+
