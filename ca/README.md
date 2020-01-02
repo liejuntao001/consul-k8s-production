@@ -21,6 +21,7 @@ cfssl gencert \
     config/consul-back-csr.json | cfssljson -bare consul-back
 ```
 
+```
 cfssl gencert \
     -ca=ca.pem \
     -ca-key=ca-key.pem \
