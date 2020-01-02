@@ -1,0 +1,110 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: consul-backup-job
+  namespace: consul-back
+  labels:
+    component: consul
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: restic
+        image: restic/restic:0.9.6
+        env:
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: restic-secrets
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: restic-secrets
+                key: AWS_SECRET_ACCESS_KEY
+          - name: RESTIC_REPOSITORY
+            valueFrom:
+              secretKeyRef:
+                name: restic-secrets
+                key: RESTIC_REPOSITORY
+          - name: RESTIC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: restic-secrets
+                key: RESTIC_PASSWORD
+          - name: NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        command:
+          - /bin/sh
+          - -c
+        args:
+          - |-
+            info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
+            info this is container restic
+            ls -ltr /data
+            if restic snapshots; then
+              echo "restic repository exists"
+            else
+              echo "restic repository does not exist"
+              restic init
+            fi
+            info backup now
+            restic backup \
+              --tag ${NAMESPACE} \
+              /data
+            sleep 2
+            info backup is done
+            echo now do prune
+            restic forget --group-by tag --prune --keep-hourly 24 --keep-daily 7 --keep-weekly 4 --keep-monthly 6 &&
+            info prune is done
+        volumeMounts:
+            - name: storage
+              mountPath: /data
+      initContainers:
+      - name: curl
+        image: curlimages/curl:7.67.0
+        env:
+          - name: CONSUL_HTTP_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: tokens
+                key: acl.tokens.management
+          - name: NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        command:
+          - /bin/sh
+          - -c
+        args:
+          - |-
+            info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
+            info this is init container curl
+            info get snapshot now
+            curl \
+              --header "X-Consul-Token: ${CONSUL_HTTP_TOKEN}" \
+              http://consul.${NAMESPACE}.svc:8500/v1/snapshot?dc=dc1 \
+              -o /data/consul-backup-$(date +"%H-%M-%S").snap
+            ls -ltr /data
+            sleep 2
+            info get snapshot done
+        volumeMounts:
+          - name: storage
+            mountPath: /data
+      volumes:
+        - name: storage
+          emptyDir: {}
+        - name: consul-tokens
+          secret:
+            secretName: tokens
+        - name: restic-secrets
+          secret:
+            secretName: restic-secrets

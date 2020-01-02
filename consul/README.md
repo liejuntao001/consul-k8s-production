@@ -28,7 +28,7 @@ Get all the tokens ready
 
 # Step 3 Enable ACL and enforce it
 
-## create secret for ACL token
+## create secret for ACL tokens
 ACL_TOKENS_AGENT=<token_vaule> ; ACL_TOKENS_MANAGEMENT=<token_vaule> ; kubectl -n consul create secret generic tokens --from-literal="acl.tokens.agent=${ACL_TOKENS_AGENT}" --from-literal="acl.tokens.management=${ACL_TOKENS_MANAGEMENT}"
 
 kubectl -n consul create configmap consul --from-file=config.json=config/03_acl_deny_config.json -o yaml --dry-run | kubectl replace -f -
@@ -43,4 +43,10 @@ kubectl apply -f consul_statefulset.yml
 
 # Setup backup cronjob
 
-AWS_SECRET_ACCESS_KEY=<secret_key>; RESTIC_PASSWORD=<restic_password>; kubectl -n consul create secret generic restic-secrets --from-literal="AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY=}" --from-literal="RESTIC_PASSWORD=${RESTIC_PASSWORD=}" 
+AWS_ACCESS_KEY_ID=<aws_access_key> ;AWS_SECRET_ACCESS_KEY=<aws_secret_key>; RESTIC_REPOSITORY=<restic_repository>; RESTIC_PASSWORD=<restic_password>; kubectl -n consul create secret generic restic-secrets --from-literal="AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID=}" --from-literal="AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY=}" --from-literal="RESTIC_REPOSITORY=${RESTIC_REPOSITORY}" --from-literal="RESTIC_PASSWORD=${RESTIC_PASSWORD}"
+
+## Do a test to run the job once
+kubectl apply -f consul_backup_job.yml
+
+## Install cronjob
+kubectl apply -f consul_backup_cronjob.yml
