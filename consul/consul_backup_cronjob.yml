@@ -52,24 +52,28 @@ spec:
                 info() { printf "\n%s %s\n\n" "$( date )" "$*" >&2; }
                 info this is container restic
                 ls -ltr /data
-                if restic snapshots; then
+                if restic snapshots --cache-dir /cache; then
                   echo "restic repository exists"
                 else
                   echo "restic repository does not exist"
-                  restic init
+                  restic init --cache-dir /cache
                 fi
                 info backup now
                 restic backup \
+                  --cache-dir /cache \
+                  --cleanup-cache \
                   --tag ${NAMESPACE} \
                   /data
                 sleep 2
                 info backup is done
                 echo now do prune
-                restic forget --group-by tag --prune --keep-hourly 24 --keep-daily 7 --keep-weekly 4 --keep-monthly 6 &&
+                restic forget --group-by tag --prune --cache-dir /cache --keep-hourly 24 --keep-daily 7 --keep-weekly 4 --keep-monthly 6 &&
                 info prune is done
             volumeMounts:
                 - name: storage
                   mountPath: /data
+                - name: restic-cache
+                  mountPath: /cache
           initContainers:
           - name: curl
             image: curlimages/curl:7.67.0
@@ -110,3 +114,6 @@ spec:
             - name: restic-secrets
               secret:
                 secretName: restic-secrets
+            - name: restic-cache
+              persistentVolumeClaim:
+                claimName: restic-cache
